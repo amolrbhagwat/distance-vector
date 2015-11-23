@@ -33,7 +33,7 @@ struct 	RouteEntry {
 	struct sockaddr_in nexthop;  			// address of the next hop
 	int cost;  								// distance
 	u_short ttl;  							// TTL in seconds
-};
+}rtable[MAX_NODES];
 
 struct 	ThreadParam {
 	// Save the thread parameters in a struct
@@ -80,14 +80,17 @@ int main(int argc, char* argv[]) {
 	// Just for printing
 	int i = 0;
 	cout << "Nodes: \n";
-	for (i=0; i< node_count; i++)
+	for (i=0; i< node_count; i++){
 		cout << i << " " << nodes[i] << " " << endl;
+	}
 
 	cout << "Neighbours: \n";
-	for (i=0; i<neighbour_count; i++)
+	for (i=0; i<neighbour_count; i++){
 		cout << neighbours[i] << " " << endl;
-	cout << "Reached end.\n";
-	
+	}
+
+	cout << "Node count: " << node_count << endl;
+	cout << "Neighbour count: " << neighbour_count << endl;
 
 	return 0;
 }
@@ -134,7 +137,6 @@ void readConfigFile(char* filename){
 	node_count = i;  
 }
 
-
 void generateGraph(int infinity){
 	for(int i = 0; i < node_count; i++){
 		for(int j = 0; j < node_count; j++){
@@ -152,7 +154,13 @@ void generateGraph(int infinity){
 }
 
 void displayGraph(){
-	printf("-- %2d %2d %2d %2d %2d %2d %2d %2d\n", 0, 1, 2, 3, 4, 5, 6, 7);
+	int a = 0;
+	printf("--"); 
+	while(a < node_count){
+		printf(" %2d", a);
+		a++;	
+	}
+	printf("\n");
 	for(int i = 0; i < node_count; i++){
 		printf("%2d ", i);
 		for(int j = 0; j < node_count; j++){

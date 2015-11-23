@@ -12,176 +12,174 @@
 #include <sys/time.h>
 #include <pthread.h>
 
-using namespace std;
+using 	namespace std;
 
 #define MAX_LINE_LENGTH 255
-#define MAX_NODES 85
-string  NODES[MAX_NODES]; // Stores all nodes
-string NHBR[MAX_NODES]; // Stores the node's  neigbhours
-int NHBR_COUNT; // count of the number of neigbhours
-int SHFlag = 0; // split horizon flag
+#define MAX_NODES 100
 
-// routing table entry
-struct RouteEntry {
-	struct sockaddr_in destAdr;  // address of the destination
-	struct sockaddr_in nextHop;  // address of the next hop
-	int cost;  // distance
-	u_short TTL;  // TTL in seconds
+string 	nodes[MAX_NODES]; 					// stores names of all the nodes, including itself
+string 	neighbours[MAX_NODES]; 				// stores names of self's neigbhours
+
+bool	is_neighbour[MAX_NODES]; 			// bool array of whether a node is a neighbour or not
+int		graph[MAX_NODES][MAX_NODES];
+
+int 	node_count = 0; 					// total number of nodes in the network, including itself
+int 	neighbour_count = 0; 				// number of neigbhours
+
+int 	shflag = 0; 						// split horizon flag
+
+struct 	RouteEntry {
+	struct sockaddr_in destadr;  			// address of the destination
+	struct sockaddr_in nexthop;  			// address of the next hop
+	int cost;  								// distance
+	u_short ttl;  							// TTL in seconds
 };
 
-// Save the thread parameters in a struct
-struct ThreadParam {
-	int socketFD; // binded socket FD
-	struct sockaddr_in clientAdd; 	// Client Address info
+struct 	ThreadParam {
+	// Save the thread parameters in a struct
+	int socketfd; 							// binded socket FD
+	struct sockaddr_in clientadd; 			// Client Address info
 	struct timeval t1;
-
 };
 
+void initialize(char*, int);
+void readConfigFile(char*);
+void generateGraph(int);
+void displayGraph();
+void generateRoutingTable();
+void displayRoutingTable();
+void sendAdv();
+void update();
 
-
-void readConfigFile(char* filename){
-	char line[MAX_LINE_LENGTH];
-	char *nodename; 	//[32];//[NodeLength];
-	char *nbr; // yes if neighbour, no if not
-	int i = 0;
-	int j = 0;
-	ifstream configfile(filename);
-
-	while(configfile.getline(line, MAX_LINE_LENGTH, '\n')){
-
-		nodename = strtok(line, " ");
-		nbr = strtok(NULL, " ");
-		string temp = nbr;
-		// store neighbours
-		if(temp.compare("yes") == 0){
-			NHBR[j] = nodename;
-			j++;
-		}
-		// store all nodes
-		NODES[i] = nodename;
-		bzero(line, MAX_LINE_LENGTH);
-		i++;
-	}    
-	NHBR_COUNT = j;
-
-}
-
-void initialize(char* filename){
-	readConfigFile(filename);
-
-}
-
-void sendAdv(){
-
-}
-
-void update(){
-
-}
-
-
-void *sendFile(void *paramP) {
-
-	return 0;
-}
-
-void *rcvAcks(void *paramP) {
-
-	return 0;
-}
 
 int main(int argc, char* argv[]) {
-	int portNo = 55555;
-	pthread_t thrdID1, thrdID2;
-	u_short TTL = 90;
-	u_short period = 30;
-	char configFile[15];
-	int infinity = 16;
-
 	// check the parameters	
 	if(argc < 7){
-		cout << "Parameters: " << "configfile portnumber TTL Infinity period splithorizon" << endl;
+		cout << "Parameters: " << "Configfile Portnumber TTL Infinity Period Splithorizon" << endl;
 		return 1;	// no parameters passed
 	}
 	
-	bzero((char *) &configFile, sizeof(configFile));
-	strcpy(configFile, argv[1]);
-	portNo = atoi(argv[2]);
-	TTL = atoi(argv[3]);
+	int portno, infinity;
+	u_short ttl = 90;
+	u_short period = 30;
+	
+	char configfile[15];	
+	bzero((char *) &configfile, sizeof(configfile));
+	strcpy(configfile, argv[1]);
+	
+	portno = atoi(argv[2]);
+	ttl = atoi(argv[3]);
 	infinity = atoi(argv[4]);
 	period = atoi(argv[5]);
-	SHFlag = atoi(argv[6]);
+	shflag = atoi(argv[6]);
 
-	// 1. initialize
-	initialize(configFile);
-////////////////////////
-	// 2. send adv
+	initialize(configfile, infinity);
 	sendAdv();
-
-	// 3. update
 	update();
+	
 	// Just for printing
 	int i = 0;
-	for (i=0; i<MAX_NODES; i++)
-		cout << NODES[i] << " " << endl;
+	cout << "Nodes: \n";
+	for (i=0; i< node_count; i++)
+		cout << i << " " << nodes[i] << " " << endl;
 
 	cout << "Neighbours: \n";
-	for (i=0; i<NHBR_COUNT; i++)
-		cout << NHBR[i] << " " << endl;
-	cout << "Reached end.";
-////////////////////////////////////////////////
-
-	// we will use some code from this part later
-	/*
-	// 0. Setting up the server
-	bzero((char *) &serverAdd, sizeof(serverAdd));
-	serverAdd.sin_family = AF_INET;
-	serverAdd.sin_addr.s_addr = INADDR_ANY;
-	serverAdd.sin_port = htons(portNo); // convert to network byte order
-
-	// 1. Create a socket
-	// socket (address domains, socket type , protocol)
-	socketFD = socket(AF_INET, SOCK_DGRAM, 0);
-	if (socketFD < 0) {
-		printf("\n socket creation failed");
-		exit(1);
-	}
-	serverAdd.sin_family = AF_INET;
-
-	// 2. Bind
-	bindNo = bind(socketFD, (struct sockaddr *) &serverAdd, sizeof(serverAdd));
-	if (bindNo < 0) {
-		printf("Binding failed, the socket may be used by another process\n");
-		exit(1);
-	}
-	socklen_t cAddLen = sizeof(struct sockaddr_in);
-
-	// Setting up the parameters to be sent threads
-	struct ThreadParam param;
-	struct ThreadParam *paramPointer;
-	paramPointer = &param;
-	paramPointer->socketFD = socketFD;
-	paramPointer->clientAdd = clientAdd;
-
-	// 4. Create a thread to Send File chunks
-	if (pthread_create(&thrdID1, NULL, sendFile, (void *) paramPointer)) {
-		printf("Pthread creation failed \n");
-		exit(1);
-	}
-
-	// 5. Create a thread that Receives Acks
-	if (pthread_create(&thrdID2, NULL, rcvAcks, (void *) paramPointer)) {
-		printf("Pthread creation failed \n");
-		exit(1);
-	}
-	pthread_join(thrdID1, NULL);
-	pthread_join(thrdID2, NULL);
-*/
+	for (i=0; i<neighbour_count; i++)
+		cout << neighbours[i] << " " << endl;
+	cout << "Reached end.\n";
+	
 
 	return 0;
 }
 
+void initialize(char* filename, int infinity){
+	readConfigFile(filename);
+	generateGraph(infinity);
+	cout << "Initial graph:\n";
+	displayGraph();
+	generateRoutingTable();
+	displayRoutingTable();
+}
 
+void readConfigFile(char* filename){
+	char line[MAX_LINE_LENGTH];
+	char *nodename;
+	char *nbr;
+	
+	is_neighbour[0] = false;
+	nodes[0] = "localhost";
+	
+	int i = 1;
+	
+	ifstream configfile(filename);
+
+	while(configfile.getline(line, MAX_LINE_LENGTH, '\n')){
+		nodename = strtok(line, " ");
+		nbr = strtok(NULL, " ");
+		string temp = nbr;
+		
+		is_neighbour[i] = false;
+		
+		if(temp.compare("yes") == 0){
+			neighbours[neighbour_count] = nodename;
+			neighbour_count++;
+			is_neighbour[i] = true;
+		}
+		// store all nodes
+		nodes[i] = nodename;
+		bzero(line, MAX_LINE_LENGTH);
+		i++;
+	}  
+
+	node_count = i;  
+}
+
+
+void generateGraph(int infinity){
+	for(int i = 0; i < node_count; i++){
+		for(int j = 0; j < node_count; j++){
+			graph[i][j] = infinity;
+		}
+	}
+	for(int i = 0; i < node_count; i++){
+		if(is_neighbour[i]){
+			graph[0][i] = 1;
+		}
+		else{
+			graph[0][i] = 0;
+		}
+	}
+}
+
+void displayGraph(){
+	printf("-- %2d %2d %2d %2d %2d %2d %2d %2d\n", 0, 1, 2, 3, 4, 5, 6, 7);
+	for(int i = 0; i < node_count; i++){
+		printf("%2d ", i);
+		for(int j = 0; j < node_count; j++){
+			printf("%2d ", graph[i][j]);
+		}
+		printf("\n");
+	}
+
+}
+
+void generateRoutingTable(){
+
+}
+
+void displayRoutingTable(){
+	
+}
+
+void sendAdv(){
+}
+
+void update(){
+}
+
+void *rcvAcks(void *paramP) {
+	return 0;
+}
 
 
 

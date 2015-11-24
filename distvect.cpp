@@ -3,6 +3,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
@@ -42,14 +43,16 @@ struct 	ThreadParam {
 	struct timeval t1;
 };
 
-void initialize(char*, int);
+void initialize(char*, int, u_short);
 void readConfigFile(char*);
 void generateGraph(int);
 void displayGraph();
-void generateRoutingTable();
+void generateRoutingTable(u_short);
 void displayRoutingTable();
 void sendAdv();
 void update();
+
+int hostnameToIp(const char*, sockaddr_in*);
 
 
 int main(int argc, char* argv[]) {
@@ -73,7 +76,7 @@ int main(int argc, char* argv[]) {
 	period = atoi(argv[5]);
 	shflag = atoi(argv[6]);
 
-	initialize(configfile, infinity);
+	initialize(configfile, infinity, ttl);
 	sendAdv();
 	update();
 	
@@ -95,12 +98,12 @@ int main(int argc, char* argv[]) {
 	return 0;
 }
 
-void initialize(char* filename, int infinity){
+void initialize(char* filename, int infinity,u_short ttl){
 	readConfigFile(filename);
 	generateGraph(infinity);
 	cout << "Initial graph:\n";
 	displayGraph();
-	generateRoutingTable();
+	generateRoutingTable(ttl);
 	displayRoutingTable();
 }
 
@@ -168,15 +171,45 @@ void displayGraph(){
 		}
 		printf("\n");
 	}
-
 }
 
-void generateRoutingTable(){
+void generateRoutingTable(u_short ttl){
+	// for own entry
+	hostnameToIp(nodes[0].c_str(), &rtable[0].destadr);
+	hostnameToIp(nodes[0].c_str(), &rtable[0].nexthop);
+	rtable[0].cost = 0;
+	rtable[0].ttl = ttl;
 
+	for(int i = 1; i < node_count; i++){
+		// the destination node
+		hostnameToIp(nodes[i].c_str(), &rtable[i].destadr);
+
+		// the next hop
+		// if it's a neighbour, then it is the next hop as well
+		if(is_neighbour[i]){
+			hostnameToIp(nodes[i].c_str(), &rtable[i].nexthop);
+			rtable[i].cost = 1;			
+		}
+		else{
+			rtable[i].cost = 0;	
+		}
+		rtable[i].ttl = ttl;
+	}
 }
 
 void displayRoutingTable(){
-	
+	cout << "\n\nRouting table:\n";
+
+	for(int i = 0; i < node_count; i++){
+		char ipadd[INET_ADDRSTRLEN];
+
+		cout << "Entry " << i+1 << endl;
+		cout << "Node: " << inet_ntop(AF_INET, &rtable[i].destadr.sin_addr, ipadd, INET_ADDRSTRLEN) << endl;
+		cout << "Next: " << inet_ntop(AF_INET, &rtable[i].nexthop.sin_addr, ipadd, INET_ADDRSTRLEN) << endl;
+		cout << "Cost: " << rtable[i].cost << endl;
+		cout << "TTL : " << rtable[i].ttl << endl;
+		cout << endl;
+	}
 }
 
 void sendAdv(){
@@ -189,8 +222,20 @@ void *rcvAcks(void *paramP) {
 	return 0;
 }
 
+int hostnameToIp(const char * hostname , sockaddr_in* node){
+	// http://stackoverflow.com/a/5445610
 
+	struct hostent        *he;
+	
+	/* resolve hostname */
+	if ((he = gethostbyname(hostname)) == NULL){
+	    return 1;
+	}
 
-
+	/* copy the network address to sockaddr_in structure */
+	memcpy(&node->sin_addr, he->h_addr_list[0], he->h_length);
+	
+	return 0;
+}
 
 

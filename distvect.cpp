@@ -61,7 +61,23 @@ int portno, infinity;
 u_short ttl;
 u_short period;
 	
+void showStats(){
+	// Just for printing
+	int i = 0;
+	cout << "Nodes: \n";
+	for (i=0; i< node_count; i++){
+		cout << i << " " << nodes[i] << " " << endl;
+	}
 
+	cout << "Neighbours: \n";
+	for (i=0; i<neighbour_count; i++){
+		cout << neighbours[i] << " " << endl;
+	}
+
+	cout << "Node count: " << node_count << endl;
+	cout << "Neighbour count: " << neighbour_count << endl;
+
+}
 
 int main(int argc, char* argv[]) {
 	// check the parameters	
@@ -80,24 +96,11 @@ int main(int argc, char* argv[]) {
 	shflag = atoi(argv[6]);
 
 	initialize();
-	sendAdv();
+	//sendAdv();
 	update();
 	
-	// Just for printing
-	int i = 0;
-	cout << "Nodes: \n";
-	for (i=0; i< node_count; i++){
-		cout << i << " " << nodes[i] << " " << endl;
-	}
-
-	cout << "Neighbours: \n";
-	for (i=0; i<neighbour_count; i++){
-		cout << neighbours[i] << " " << endl;
-	}
-
-	cout << "Node count: " << node_count << endl;
-	cout << "Neighbour count: " << neighbour_count << endl;
-
+	
+	showStats();
 	return 0;
 }
 
@@ -218,7 +221,7 @@ void displayRoutingTable(){
 void sendAdv(){
 	string adv = makeAdv();
 	
-	int udp_socket, portno, no_of_bytes;
+	int udp_socket, no_of_bytes;
     struct sockaddr_in server_address;
     struct hostent *server;
     socklen_t len;
@@ -242,7 +245,7 @@ void sendAdv(){
    			server_address.sin_family = AF_INET;
    		    bcopy((char *)server->h_addr, (char *)&server_address.sin_addr.s_addr, server->h_length);
     		    
-   		    server_address.sin_port = htons(65533);
+   		    server_address.sin_port = htons(portno);
    		    if (connect(udp_socket,(struct sockaddr *) &server_address,sizeof(server_address)) < 0) {
    		       std::cout << "ERROR connecting to " << nodes[i] << endl;
    		       continue;
@@ -259,6 +262,8 @@ void sendAdv(){
 }
 
 void update(){
+	sendAdv();
+
 }
 
 void *rcvAcks(void *paramP) {
@@ -292,14 +297,10 @@ string makeAdv(){
 	for(int i = 0; i < node_count; i++){
 		adv.append(inet_ntop(AF_INET, &rtable[i].destadr.sin_addr, ipadd, INET_ADDRSTRLEN));
 		adv.append(",");
-		adv.append(inet_ntop(AF_INET, &rtable[i].nexthop.sin_addr, ipadd, INET_ADDRSTRLEN));
-		adv.append(",");
+		
 		adv.append(to_string(rtable[i].cost));
-		adv.append(",");
-		adv.append(to_string(rtable[i].ttl));
 		adv.append(";");
 	}
-
 	return adv;
 }
 

@@ -55,6 +55,7 @@ void *update(void*);
 void *getAcks(void*);
 void decrementTTLs();
 string makeAdv();
+void processAdv(char *);
 
 int hostnameToIp(const char*, sockaddr_in*);
 
@@ -309,6 +310,7 @@ void *getAcks(void *b) {
 	struct sockaddr_in server_address, client_address;
 	socklen_t client_length;
 	char buffer[BUFFER_SIZE];
+	char from_ip[INET_ADDRSTRLEN];
 	bzero(buffer, BUFFER_SIZE);
 		
 	server_socket = socket(AF_INET, SOCK_DGRAM, 0);
@@ -330,20 +332,47 @@ void *getAcks(void *b) {
 		listen(server_socket, 5);
 		client_length = sizeof(client_address);
 		
-//		if(client_socket < 0){
-//			cout << "Error while accepting connection\n";
-//			continue;
-//		}
+		if(client_socket < 0){
+			//cout << "Error while accepting connection\n";
+			continue;
+		}
 
 		bzero(buffer, BUFFER_SIZE);
 		no_of_bytes = recvfrom(server_socket,buffer,BUFFER_SIZE,0,(struct sockaddr *)&client_address,&client_length);
 
 		cout << "Received: " << buffer << endl;
+		cout << "From: " << inet_ntop(AF_INET, &client_address.sin_addr, from_ip, INET_ADDRSTRLEN) << endl;
+		
+		processAdv(buffer, from_ip);
 
 	}
 
 
 	return NULL;
+}
+
+void processAdv(char* recdadv, char* from_ip){
+	char token1[20];
+	char token2[20];
+	char *temp;
+
+	temp = strtok (recdadv,",:");
+
+	while (temp != NULL)	{
+		strcpy(token1, temp);
+		string destination(token1);
+		
+		temp = strtok (NULL, ",;");
+		strcpy(token2, temp);
+		string costtodestination(token2);
+		
+		
+		
+		temp = strtok (NULL, ",;");		
+	}
+
+
+
 }
 
 int hostnameToIp(const char * hostname , sockaddr_in* node){

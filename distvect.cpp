@@ -50,7 +50,8 @@ void displayGraph();
 void generateRoutingTable();
 void displayRoutingTable();
 void sendAdv();
-void update();
+void *update(void*);
+void *getAcks(void*);
 string makeAdv();
 
 int hostnameToIp(const char*, sockaddr_in*);
@@ -96,11 +97,23 @@ int main(int argc, char* argv[]) {
 	shflag = atoi(argv[6]);
 
 	initialize();
-	//sendAdv();
-	update();
-	
 	
 	showStats();
+		
+	pthread_t thread_update, thread_listener;
+
+	if( pthread_create( &thread_update , NULL , update , NULL) < 0){
+	      cout << "Could not create update thread.\n";
+	      exit(EXIT_FAILURE);
+	}
+	if( pthread_create( &thread_listener , NULL , getAcks , NULL) < 0){
+	      cout << "Could not create listener thread.\n";
+	      exit(EXIT_FAILURE);
+	}
+
+	pthread_join(thread_update, NULL);
+	pthread_join(thread_listener, NULL);
+
 	return 0;
 }
 
@@ -261,13 +274,15 @@ void sendAdv(){
     }
 }
 
-void update(){
-	sendAdv();
-
+void *update(void* a){
+	cout << "\nUpdate thread started\n";
+	return NULL;
 }
 
-void *rcvAcks(void *paramP) {
-	return 0;
+void *getAcks(void *b) {
+	cout << "\nListener thread started\n";
+	
+	return NULL;
 }
 
 int hostnameToIp(const char * hostname , sockaddr_in* node){
@@ -287,9 +302,6 @@ int hostnameToIp(const char * hostname , sockaddr_in* node){
 }
 
 string makeAdv(){
-	/* number of bytes which can be sent = 1472
-	assuming each line to be approx. 40 bytes
-	so can send around 37 entries */
 	char ipadd[INET_ADDRSTRLEN];
 
 	string adv = "";
@@ -303,4 +315,3 @@ string makeAdv(){
 	}
 	return adv;
 }
-

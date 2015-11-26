@@ -367,7 +367,7 @@ string makeAdv(){
 
 	string adv = "";
 	
-	for(int i = 0; i < node_count; i++){
+	for(int i = 1; i < node_count; i++){
 		adv.append(inet_ntop(AF_INET, &rtable[i].destadr.sin_addr, ipadd, INET_ADDRSTRLEN));
 		adv.append(",");
 		

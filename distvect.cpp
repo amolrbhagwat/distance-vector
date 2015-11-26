@@ -43,17 +43,24 @@ struct 	ThreadParam {
 	struct timeval t1;
 };
 
-void initialize(char*, int, u_short);
-void readConfigFile(char*);
-void generateGraph(int);
+void initialize();
+void readConfigFile();
+void generateGraph();
 void displayGraph();
-void generateRoutingTable(u_short);
+void generateRoutingTable();
 void displayRoutingTable();
 void sendAdv();
 void update();
 string makeAdv();
 
 int hostnameToIp(const char*, sockaddr_in*);
+
+char configfilename[15];	
+	
+int portno, infinity;
+u_short ttl;
+u_short period;
+	
 
 
 int main(int argc, char* argv[]) {
@@ -63,13 +70,8 @@ int main(int argc, char* argv[]) {
 		return 1;	// no parameters passed
 	}
 	
-	int portno, infinity;
-	u_short ttl = 90;
-	u_short period = 30;
-	
-	char configfile[15];	
-	bzero((char *) &configfile, sizeof(configfile));
-	strcpy(configfile, argv[1]);
+	bzero((char *) &configfilename, sizeof(configfilename));
+	strcpy(configfilename, argv[1]);
 	
 	portno = atoi(argv[2]);
 	ttl = atoi(argv[3]);
@@ -77,7 +79,7 @@ int main(int argc, char* argv[]) {
 	period = atoi(argv[5]);
 	shflag = atoi(argv[6]);
 
-	initialize(configfile, infinity, ttl);
+	initialize();
 	sendAdv();
 	update();
 	
@@ -99,16 +101,16 @@ int main(int argc, char* argv[]) {
 	return 0;
 }
 
-void initialize(char* filename, int infinity,u_short ttl){
-	readConfigFile(filename);
-	generateGraph(infinity);
+void initialize(){
+	readConfigFile();
+	generateGraph();
 	cout << "Initial graph:\n";
 	displayGraph();
-	generateRoutingTable(ttl);
+	generateRoutingTable();
 	displayRoutingTable();
 }
 
-void readConfigFile(char* filename){
+void readConfigFile(){
 	char line[MAX_LINE_LENGTH];
 	char *nodename;
 	char *nbr;
@@ -118,7 +120,7 @@ void readConfigFile(char* filename){
 	
 	int i = 1;
 	
-	ifstream configfile(filename);
+	ifstream configfile(configfilename);
 
 	while(configfile.getline(line, MAX_LINE_LENGTH, '\n')){
 		nodename = strtok(line, " ");
@@ -141,7 +143,7 @@ void readConfigFile(char* filename){
 	node_count = i;  
 }
 
-void generateGraph(int infinity){
+void generateGraph(){
 	for(int i = 0; i < node_count; i++){
 		for(int j = 0; j < node_count; j++){
 			graph[i][j] = infinity;
@@ -174,7 +176,7 @@ void displayGraph(){
 	}
 }
 
-void generateRoutingTable(u_short ttl){
+void generateRoutingTable(){
 	// for own entry
 	hostnameToIp(nodes[0].c_str(), &rtable[0].destadr);
 	hostnameToIp(nodes[0].c_str(), &rtable[0].nexthop);
@@ -211,7 +213,6 @@ void displayRoutingTable(){
 		cout << "TTL : " << rtable[i].ttl << endl;
 		cout << endl;
 	}
-
 }
 
 void sendAdv(){
@@ -248,7 +249,6 @@ void sendAdv(){
    		    }
     		    
    		    no_of_bytes = sendto(udp_socket,adv.c_str(),adv.length(),0,(struct sockaddr *)&server_address,sizeof(server_address));
-   		    //cout << endl << no_of_bytes << " written to " << nodes[i] << endl;
 
    		    if (no_of_bytes < 0) {
    		       std::cout << "ERROR writing to " << nodes[i] << endl;
@@ -256,7 +256,6 @@ void sendAdv(){
    		    }
     	}
     }
-    
 }
 
 void update(){

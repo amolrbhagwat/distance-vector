@@ -51,6 +51,7 @@ void generateRoutingTable(u_short);
 void displayRoutingTable();
 void sendAdv();
 void update();
+string makeAdv();
 
 int hostnameToIp(const char*, sockaddr_in*);
 
@@ -210,9 +211,52 @@ void displayRoutingTable(){
 		cout << "TTL : " << rtable[i].ttl << endl;
 		cout << endl;
 	}
+
 }
 
 void sendAdv(){
+	string adv = makeAdv();
+	
+	int udp_socket, portno, no_of_bytes;
+    struct sockaddr_in server_address;
+    struct hostent *server;
+    socklen_t len;
+
+    udp_socket = socket(AF_INET, SOCK_DGRAM, 0);
+    if (udp_socket < 0) {
+       std::cout << "Error opening socket\n";
+       return;
+    }
+    
+    for(int i = 0; i < node_count; i++){
+    	if(is_neighbour[i]){
+    		server = gethostbyname(nodes[i].c_str());
+
+   		    if (server == NULL) {
+   		       std::cout << nodes[i] << " not found!\n";
+   		       continue;
+   		    }
+   		    
+   		    bzero((char *) &server_address, sizeof(server_address));
+   			server_address.sin_family = AF_INET;
+   		    bcopy((char *)server->h_addr, (char *)&server_address.sin_addr.s_addr, server->h_length);
+    		    
+   		    server_address.sin_port = htons(65533);
+   		    if (connect(udp_socket,(struct sockaddr *) &server_address,sizeof(server_address)) < 0) {
+   		       std::cout << "ERROR connecting to " << nodes[i] << endl;
+   		       continue;
+   		    }
+    		    
+   		    no_of_bytes = sendto(udp_socket,adv.c_str(),adv.length(),0,(struct sockaddr *)&server_address,sizeof(server_address));
+   		    //cout << endl << no_of_bytes << " written to " << nodes[i] << endl;
+
+   		    if (no_of_bytes < 0) {
+   		       std::cout << "ERROR writing to " << nodes[i] << endl;
+   		       continue;
+   		    }
+    	}
+    }
+    
 }
 
 void update(){
@@ -238,4 +282,25 @@ int hostnameToIp(const char * hostname , sockaddr_in* node){
 	return 0;
 }
 
+string makeAdv(){
+	/* number of bytes which can be sent = 1472
+	assuming each line to be approx. 40 bytes
+	so can send around 37 entries */
+	char ipadd[INET_ADDRSTRLEN];
+
+	string adv = "";
+	
+	for(int i = 0; i < node_count; i++){
+		adv.append(inet_ntop(AF_INET, &rtable[i].destadr.sin_addr, ipadd, INET_ADDRSTRLEN));
+		adv.append(",");
+		adv.append(inet_ntop(AF_INET, &rtable[i].nexthop.sin_addr, ipadd, INET_ADDRSTRLEN));
+		adv.append(",");
+		adv.append(to_string(rtable[i].cost));
+		adv.append(",");
+		adv.append(to_string(rtable[i].ttl));
+		adv.append(";");
+	}
+
+	return adv;
+}
 

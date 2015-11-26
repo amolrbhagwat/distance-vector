@@ -17,6 +17,7 @@ using 	namespace std;
 
 #define MAX_LINE_LENGTH 255
 #define MAX_NODES 100
+#define BUFFER_SIZE 1472
 
 string 	nodes[MAX_NODES]; 					// stores names of all the nodes, including itself
 string 	neighbours[MAX_NODES]; 				// stores names of self's neigbhours
@@ -69,13 +70,14 @@ void showStats(){
 	for (i=0; i< node_count; i++){
 		cout << i << " " << nodes[i] << " " << endl;
 	}
+	cout << "Node count: " << node_count << endl;
+	
 
-	cout << "Neighbours: \n";
+	cout << "\nNeighbours: \n";
 	for (i=0; i<neighbour_count; i++){
 		cout << neighbours[i] << " " << endl;
 	}
 
-	cout << "Node count: " << node_count << endl;
 	cout << "Neighbour count: " << neighbour_count << endl;
 
 }
@@ -249,8 +251,10 @@ void sendAdv(){
     	if(is_neighbour[i]){
     		server = gethostbyname(nodes[i].c_str());
 
+    		cout << "Sending to: " << nodes[i] << " ";
+
    		    if (server == NULL) {
-   		       std::cout << nodes[i] << " not found!\n";
+   		       cout << nodes[i] << " FAILED - Host not found!" << endl;
    		       continue;
    		    }
    		    
@@ -260,14 +264,14 @@ void sendAdv(){
     		    
    		    server_address.sin_port = htons(portno);
    		    if (connect(udp_socket,(struct sockaddr *) &server_address,sizeof(server_address)) < 0) {
-   		       std::cout << "ERROR connecting to " << nodes[i] << endl;
+   		       std::cout << " FAILED - Error while connecting!" << endl;
    		       continue;
    		    }
     		    
    		    no_of_bytes = sendto(udp_socket,adv.c_str(),adv.length(),0,(struct sockaddr *)&server_address,sizeof(server_address));
-
+   		    cout << " SUCCESSFUL - Sent " << no_of_bytes << " Bytes" << endl;
    		    if (no_of_bytes < 0) {
-   		       std::cout << "ERROR writing to " << nodes[i] << endl;
+   		       std::cout << " FAILED - Error while writing!" << endl;
    		       continue;
    		    }
     	}

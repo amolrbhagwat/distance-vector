@@ -53,6 +53,7 @@ void displayRoutingTable();
 void sendAdv();
 void *update(void*);
 void *getAcks(void*);
+void decrementTTLs();
 string makeAdv();
 
 int hostnameToIp(const char*, sockaddr_in*);
@@ -280,12 +281,68 @@ void sendAdv(){
 
 void *update(void* a){
 	cout << "\nUpdate thread started\n";
+	
+	while(true){
+		sleep(5);
+		decrementTTLs();
+		sendAdv();	
+	}
+
 	return NULL;
+}
+
+void decrementTTLs(){
+	for(int i = 1; i < node_count; i++){
+		rtable[i].ttl -= period;
+		if(rtable[i].ttl == 0){
+			rtable[i].nexthop.sin_addr.s_addr = 0;
+			rtable[i].cost = infinity;
+			rtable[i].ttl = ttl;
+		}
+	}
 }
 
 void *getAcks(void *b) {
 	cout << "\nListener thread started\n";
 	
+	int server_socket, client_socket, no_of_bytes;
+	struct sockaddr_in server_address, client_address;
+	socklen_t client_length;
+	char buffer[BUFFER_SIZE];
+	bzero(buffer, BUFFER_SIZE);
+		
+	server_socket = socket(AF_INET, SOCK_DGRAM, 0);
+	if(server_socket < 0){
+		cout << "Error while creating socket\n";
+		return NULL;
+	}
+
+	server_address.sin_family = AF_INET;
+	server_address.sin_port = htons(portno);
+	server_address.sin_addr.s_addr = htonl(INADDR_ANY);
+
+	if(bind(server_socket, (struct sockaddr *) &server_address, sizeof(server_address)) < 0){
+		cout << "Binding error\n";
+		return NULL;
+	}
+
+	while(true){
+		listen(server_socket, 5);
+		client_length = sizeof(client_address);
+		
+//		if(client_socket < 0){
+//			cout << "Error while accepting connection\n";
+//			continue;
+//		}
+
+		bzero(buffer, BUFFER_SIZE);
+		no_of_bytes = recvfrom(server_socket,buffer,BUFFER_SIZE,0,(struct sockaddr *)&client_address,&client_length);
+
+		cout << "Received: " << buffer << endl;
+
+	}
+
+
 	return NULL;
 }
 

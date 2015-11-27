@@ -304,7 +304,29 @@ void *getAdvs(void *b) {
 }
 
 void processAdv(char* recdadv, char* from_ip){
-	char token1[20];
+	// when a advertisement is receieved from a neighbour, the neighbour's TTL is restored
+    // then check each and every entry in the advertisement, if there's a lower cost and make updates as needed
+    // finally, for all nodes in rtable which have as nexthop, the node from which adv was recd, restore TTL
+
+
+    // restoring neighbour's TTL
+
+    char heard_from[INET_ADDRSTRLEN];
+
+    for(int i = 1; i < node_count; i++){
+        inet_ntop(AF_INET, &rtable[i].destadr.sin_addr, heard_from, INET_ADDRSTRLEN);
+        if(strcmp(heard_from, from_ip) == 0 && is_neighbour[i]){
+            cout << "Heard from: " << from_ip << endl;
+            rtable[i].cost = 1;
+            rtable[i].ttl = ttl;
+            hostnameToIp(nodes[i].c_str(), &rtable[i].nexthop);
+            break;
+        }
+    }
+
+    // check for lower costs, and update/refresh if needed
+
+    char token1[20];
 	char token2[20];
 	char *temp;
 
@@ -323,22 +345,20 @@ void processAdv(char* recdadv, char* from_ip){
 		temp = strtok (NULL, ",;");		
 	}
 
+    // for the remaining nodes connected through the node which advertised, restore TTL
+    char temp2[INET_ADDRSTRLEN];
+    for(int i = 1; i < node_count; i++){
+        inet_ntop(AF_INET, &rtable[i].nexthop.sin_addr, temp2, INET_ADDRSTRLEN);
+        if(strcmp(temp2, from_ip) == 0){
+            rtable[i].ttl = ttl;
+        }
+    }
+
 }
 
 void refreshValues(string destination, string costtodestination, char *through){
     //cout << "Destination: " << destination << endl;
     //cout << "Cost: " << costtodestination << endl;
-    char heard_from[INET_ADDRSTRLEN];
-
-    for(int i = 1; i < node_count; i++){
-        inet_ntop(AF_INET, &rtable[i].destadr.sin_addr, heard_from, INET_ADDRSTRLEN);
-        if(strcmp(heard_from, through) == 0 && is_neighbour[i]){
-            rtable[i].cost = 1;
-            rtable[i].ttl = ttl;
-            hostnameToIp(nodes[i].c_str(), &rtable[i].nexthop);
-            break;
-        }
-    }
 
     int index;
     char dest_ip[INET_ADDRSTRLEN];
@@ -352,6 +372,7 @@ void refreshValues(string destination, string costtodestination, char *through){
     }
 
     if(index == node_count){
+        // not found
         return;
     }
 

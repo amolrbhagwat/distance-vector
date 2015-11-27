@@ -311,11 +311,11 @@ void processAdv(char* recdadv, char* from_ip){
 
     // restoring neighbour's TTL
 
-    char heard_from[INET_ADDRSTRLEN];
+    char temp_ip[INET_ADDRSTRLEN];
 
     for(int i = 1; i < node_count; i++){
-        inet_ntop(AF_INET, &rtable[i].destadr.sin_addr, heard_from, INET_ADDRSTRLEN);
-        if(strcmp(heard_from, from_ip) == 0 && is_neighbour[i]){
+        inet_ntop(AF_INET, &rtable[i].destadr.sin_addr, temp_ip, INET_ADDRSTRLEN);
+        if(strcmp(temp_ip, from_ip) == 0 && is_neighbour[i]){
             cout << "Heard from: " << from_ip << endl;
             rtable[i].cost = 1;
             rtable[i].ttl = ttl;
@@ -328,28 +328,28 @@ void processAdv(char* recdadv, char* from_ip){
 
     char token1[20];
 	char token2[20];
-	char *temp;
+	char *temp_str;
 
-	temp = strtok (recdadv,",:");
+	temp_str = strtok (recdadv,",:");
 
-	while (temp != NULL)	{
-		strcpy(token1, temp);
+	while (temp_str != NULL)	{
+		strcpy(token1, temp_str);
 		string destination(token1);
 		
-		temp = strtok (NULL, ",;");
-		strcpy(token2, temp);
+		temp_str = strtok (NULL, ",;");
+		strcpy(token2, temp_str);
 		string costtodestination(token2);
 		
         refreshValues(destination, costtodestination, from_ip);	
 		
-		temp = strtok (NULL, ",;");		
+		temp_str = strtok (NULL, ",;");		
 	}
 
     // for the remaining nodes connected through the node which advertised, restore TTL
-    char temp2[INET_ADDRSTRLEN];
+    
     for(int i = 1; i < node_count; i++){
-        inet_ntop(AF_INET, &rtable[i].nexthop.sin_addr, temp2, INET_ADDRSTRLEN);
-        if(strcmp(temp2, from_ip) == 0){
+        inet_ntop(AF_INET, &rtable[i].nexthop.sin_addr, temp_ip, INET_ADDRSTRLEN);
+        if(strcmp(temp_ip, from_ip) == 0){
             rtable[i].ttl = ttl;
         }
     }

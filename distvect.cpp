@@ -32,6 +32,7 @@ void processAdv(char *, char*);
 int hostnameToIp(const char*, sockaddr_in*);
 void refreshValues(string, string, char*);
 void readConfigFile();
+void displayGraph();
 void displayRoutingTable();
 string makeAdv();
 void showStats();

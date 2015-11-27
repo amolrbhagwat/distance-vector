@@ -17,6 +17,7 @@ using 	namespace std;
 
 #define MAX_LINE_LENGTH 255
 #define MAX_NODES 100
+#define BUFFER_SIZE 1472
 
 string 	nodes[MAX_NODES]; 					// stores names of all the nodes, including itself
 string 	neighbours[MAX_NODES]; 				// stores names of self's neigbhours
@@ -36,12 +37,6 @@ struct 	RouteEntry {
 	u_short ttl;  							// TTL in seconds
 }rtable[MAX_NODES];
 
-struct 	ThreadParam {
-	// Save the thread parameters in a struct
-	int socketfd; 							// binded socket FD
-	struct sockaddr_in clientadd; 			// Client Address info
-	struct timeval t1;
-};
 
 void initialize();
 void readConfigFile();
@@ -51,10 +46,14 @@ void generateRoutingTable();
 void displayRoutingTable();
 void sendAdv();
 void *update(void*);
-void *getAcks(void*);
+void *getAdvs(void*);
+void decrementTTLs();
 string makeAdv();
+void processAdv(char *, char*);
 
 int hostnameToIp(const char*, sockaddr_in*);
+
+void refreshValues(string, string, char*);
 
 char configfilename[15];	
 	
@@ -69,13 +68,14 @@ void showStats(){
 	for (i=0; i< node_count; i++){
 		cout << i << " " << nodes[i] << " " << endl;
 	}
+	cout << "Node count: " << node_count << endl;
+	
 
-	cout << "Neighbours: \n";
+	cout << "\nNeighbours: \n";
 	for (i=0; i<neighbour_count; i++){
 		cout << neighbours[i] << " " << endl;
 	}
 
-	cout << "Node count: " << node_count << endl;
 	cout << "Neighbour count: " << neighbour_count << endl;
 
 }
@@ -106,7 +106,7 @@ int main(int argc, char* argv[]) {
 	      cout << "Could not create update thread.\n";
 	      exit(EXIT_FAILURE);
 	}
-	if( pthread_create( &thread_listener , NULL , getAcks , NULL) < 0){
+	if( pthread_create( &thread_listener , NULL , getAdvs , NULL) < 0){
 	      cout << "Could not create listener thread.\n";
 	      exit(EXIT_FAILURE);
 	}
@@ -165,12 +165,13 @@ void generateGraph(){
 			graph[i][j] = infinity;
 		}
 	}
-	for(int i = 0; i < node_count; i++){
+    graph[0][0] = 0;
+	for(int i = 1; i < node_count; i++){
 		if(is_neighbour[i]){
 			graph[0][i] = 1;
 		}
 		else{
-			graph[0][i] = 0;
+			graph[0][i] = infinity;
 		}
 	}
 }
@@ -210,7 +211,7 @@ void generateRoutingTable(){
 			rtable[i].cost = 1;			
 		}
 		else{
-			rtable[i].cost = 0;	
+			rtable[i].cost = infinity;	
 		}
 		rtable[i].ttl = ttl;
 	}
@@ -222,7 +223,7 @@ void displayRoutingTable(){
 	for(int i = 0; i < node_count; i++){
 		char ipadd[INET_ADDRSTRLEN];
 
-		cout << "Entry " << i+1 << endl;
+		cout << "Entry " << i << endl;
 		cout << "Node: " << inet_ntop(AF_INET, &rtable[i].destadr.sin_addr, ipadd, INET_ADDRSTRLEN) << endl;
 		cout << "Next: " << inet_ntop(AF_INET, &rtable[i].nexthop.sin_addr, ipadd, INET_ADDRSTRLEN) << endl;
 		cout << "Cost: " << rtable[i].cost << endl;
@@ -231,59 +232,163 @@ void displayRoutingTable(){
 	}
 }
 
-void sendAdv(){
-	string adv = makeAdv();
-	
-	int udp_socket, no_of_bytes;
-    struct sockaddr_in server_address;
-    struct hostent *server;
-    socklen_t len;
-
-    udp_socket = socket(AF_INET, SOCK_DGRAM, 0);
-    if (udp_socket < 0) {
-       std::cout << "Error opening socket\n";
-       return;
-    }
-    
-    for(int i = 0; i < node_count; i++){
-    	if(is_neighbour[i]){
-    		server = gethostbyname(nodes[i].c_str());
-
-   		    if (server == NULL) {
-   		       std::cout << nodes[i] << " not found!\n";
-   		       continue;
-   		    }
-   		    
-   		    bzero((char *) &server_address, sizeof(server_address));
-   			server_address.sin_family = AF_INET;
-   		    bcopy((char *)server->h_addr, (char *)&server_address.sin_addr.s_addr, server->h_length);
-    		    
-   		    server_address.sin_port = htons(portno);
-   		    if (connect(udp_socket,(struct sockaddr *) &server_address,sizeof(server_address)) < 0) {
-   		       std::cout << "ERROR connecting to " << nodes[i] << endl;
-   		       continue;
-   		    }
-    		    
-   		    no_of_bytes = sendto(udp_socket,adv.c_str(),adv.length(),0,(struct sockaddr *)&server_address,sizeof(server_address));
-
-   		    if (no_of_bytes < 0) {
-   		       std::cout << "ERROR writing to " << nodes[i] << endl;
-   		       continue;
-   		    }
-    	}
-    }
-}
-
 void *update(void* a){
-	cout << "\nUpdate thread started\n";
+    while(true){
+        displayRoutingTable();
+        sleep(5);
+        decrementTTLs();
+        sendAdv();          
+    }
+
+    return NULL;
+}
+
+
+void decrementTTLs(){
+	for(int i = 1; i < node_count; i++){
+		rtable[i].ttl -= period;
+		if(rtable[i].ttl == 0){
+			rtable[i].nexthop.sin_addr.s_addr = 0;
+            rtable[i].cost = infinity;
+            graph[0][i] = infinity;
+			rtable[i].ttl = ttl;
+		}
+	}
+}
+
+void *getAdvs(void *b) {
+	int server_socket, client_socket, no_of_bytes;
+	struct sockaddr_in server_address, client_address;
+	socklen_t client_length;
+	char buffer[BUFFER_SIZE];
+	char from_ip[INET_ADDRSTRLEN];
+	bzero(buffer, BUFFER_SIZE);
+		
+	server_socket = socket(AF_INET, SOCK_DGRAM, 0);
+	if(server_socket < 0){
+		cout << "Error while creating socket\n";
+		return NULL;
+	}
+
+	server_address.sin_family = AF_INET;
+	server_address.sin_port = htons(portno);
+	server_address.sin_addr.s_addr = htonl(INADDR_ANY);
+
+	if(bind(server_socket, (struct sockaddr *) &server_address, sizeof(server_address)) < 0){
+		cout << "Binding error\n";
+		return NULL;
+	}
+
+	while(true){
+		listen(server_socket, 5);
+		client_length = sizeof(client_address);
+		
+		if(client_socket < 0){
+			//cout << "Error while accepting connection\n";
+			continue;
+		}
+
+		bzero(buffer, BUFFER_SIZE);
+		no_of_bytes = recvfrom(server_socket,buffer,BUFFER_SIZE,0,(struct sockaddr *)&client_address,&client_length);
+
+		//cout << "Received: " << buffer << endl;
+		//cout << "From: " << 
+        inet_ntop(AF_INET, &client_address.sin_addr, from_ip, INET_ADDRSTRLEN);// << endl;
+		
+		processAdv(buffer, from_ip);
+
+	}
+
+
 	return NULL;
 }
 
-void *getAcks(void *b) {
-	cout << "\nListener thread started\n";
-	
-	return NULL;
+void processAdv(char* recdadv, char* from_ip){
+	// when a advertisement is receieved from a neighbour, the neighbour's TTL is restored
+    // then check each and every entry in the advertisement, if there's a lower cost and make updates as needed
+    // finally, for all nodes in rtable which have as nexthop, the node from which adv was recd, restore TTL
+
+
+    // restoring neighbour's TTL
+
+    char heard_from[INET_ADDRSTRLEN];
+
+    for(int i = 1; i < node_count; i++){
+        inet_ntop(AF_INET, &rtable[i].destadr.sin_addr, heard_from, INET_ADDRSTRLEN);
+        if(strcmp(heard_from, from_ip) == 0 && is_neighbour[i]){
+            cout << "Heard from: " << from_ip << endl;
+            rtable[i].cost = 1;
+            rtable[i].ttl = ttl;
+            hostnameToIp(nodes[i].c_str(), &rtable[i].nexthop);
+            break;
+        }
+    }
+
+    // check for lower costs, and update/refresh if needed
+
+    char token1[20];
+	char token2[20];
+	char *temp;
+
+	temp = strtok (recdadv,",:");
+
+	while (temp != NULL)	{
+		strcpy(token1, temp);
+		string destination(token1);
+		
+		temp = strtok (NULL, ",;");
+		strcpy(token2, temp);
+		string costtodestination(token2);
+		
+        refreshValues(destination, costtodestination, from_ip);	
+		
+		temp = strtok (NULL, ",;");		
+	}
+
+    // for the remaining nodes connected through the node which advertised, restore TTL
+    char temp2[INET_ADDRSTRLEN];
+    for(int i = 1; i < node_count; i++){
+        inet_ntop(AF_INET, &rtable[i].nexthop.sin_addr, temp2, INET_ADDRSTRLEN);
+        if(strcmp(temp2, from_ip) == 0){
+            rtable[i].ttl = ttl;
+        }
+    }
+
 }
+
+void refreshValues(string destination, string costtodestination, char *through){
+    //cout << "Destination: " << destination << endl;
+    //cout << "Cost: " << costtodestination << endl;
+
+    int index;
+    char dest_ip[INET_ADDRSTRLEN];
+
+    for(index = 1; index < node_count; index++){
+        inet_ntop(AF_INET, &rtable[index].destadr.sin_addr, dest_ip, INET_ADDRSTRLEN);
+        if(strcmp(dest_ip, destination.c_str()) == 0){
+            //cout << destination << " found at index " << index << endl;
+            break;
+        }
+    }
+
+    if(index == node_count){
+        // not found
+        return;
+    }
+
+    int current_cost = rtable[index].cost;
+    int given_cost = stoi(costtodestination);
+
+    if(given_cost + 1 < current_cost){
+        rtable[index].ttl = ttl;
+        rtable[index].cost = given_cost + 1;
+        inet_pton(AF_INET, through, &rtable[index].nexthop.sin_addr);
+
+        //displayGraph();
+        //displayRoutingTable();
+    }
+}
+
 
 int hostnameToIp(const char * hostname , sockaddr_in* node){
 	// http://stackoverflow.com/a/5445610
@@ -306,7 +411,7 @@ string makeAdv(){
 
 	string adv = "";
 	
-	for(int i = 0; i < node_count; i++){
+	for(int i = 1; i < node_count; i++){
 		adv.append(inet_ntop(AF_INET, &rtable[i].destadr.sin_addr, ipadd, INET_ADDRSTRLEN));
 		adv.append(",");
 		
@@ -314,4 +419,49 @@ string makeAdv(){
 		adv.append(";");
 	}
 	return adv;
+}
+
+void sendAdv(){
+    string adv = makeAdv();
+    
+    int udp_socket, no_of_bytes;
+    struct sockaddr_in server_address;
+    struct hostent *server;
+    socklen_t len;
+
+    udp_socket = socket(AF_INET, SOCK_DGRAM, 0);
+    if (udp_socket < 0) {
+       std::cout << "Error opening socket\n";
+       return;
+    }
+    
+    for(int i = 0; i < node_count; i++){
+        if(is_neighbour[i]){
+            server = gethostbyname(nodes[i].c_str());
+
+            //cout << "Sending to: " << nodes[i] << " ";
+
+            if (server == NULL) {
+               cout << nodes[i] << " FAILED - Host not found!" << endl;
+               continue;
+            }
+            
+            bzero((char *) &server_address, sizeof(server_address));
+            server_address.sin_family = AF_INET;
+            bcopy((char *)server->h_addr, (char *)&server_address.sin_addr.s_addr, server->h_length);
+                
+            server_address.sin_port = htons(portno);
+            if (connect(udp_socket,(struct sockaddr *) &server_address,sizeof(server_address)) < 0) {
+               std::cout << " FAILED - Error while connecting!" << endl;
+               continue;
+            }
+                
+            no_of_bytes = sendto(udp_socket,adv.c_str(),adv.length(),0,(struct sockaddr *)&server_address,sizeof(server_address));
+            //cout << " SUCCESSFUL - Sent " << no_of_bytes << " Bytes" << endl;
+            if (no_of_bytes < 0) {
+               std::cout << " FAILED - Error while writing!" << endl;
+               continue;
+            }
+        }
+    }
 }

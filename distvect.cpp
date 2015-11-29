@@ -34,7 +34,7 @@ void refreshValues(string, string, char*);
 void readConfigFile();
 void displayGraph();
 void displayRoutingTable();
-string makeAdv();
+string makeAdv(char *);
 void showStats();
 
 char configfilename[15];	
@@ -203,24 +203,40 @@ void generateRoutingTable(){
 }
 
 void displayRoutingTable(){
-	cout << "\n\nRouting table:\n";
+	cout << "\033[H\033[2J";
+		
+	cout << "Routing table:\n";
+
+	/*for(int i = 0; i < node_count; i++){
+		char ipadd[INET_ADDRSTRLEN];
+
+		cout << "Entry " << i << endl;
+		cout << "Node: " << inet_ntop(AF_INET, &rtable[i].destadr.sin_addr, ipadd, INET_ADDRSTRLEN);// << endl;
+		cout << " Next: " << inet_ntop(AF_INET, &rtable[i].nexthop.sin_addr, ipadd, INET_ADDRSTRLEN) << endl;
+		cout << "Cost: " << rtable[i].cost;// << endl;
+		cout << " TTL : " << rtable[i].ttl << endl;
+		cout << endl;
+	}*/
+
+	printf("%-15s %-15s %-4s %4s\n", "Node", "Next", "Cost", "TTL");
 
 	for(int i = 0; i < node_count; i++){
 		char ipadd[INET_ADDRSTRLEN];
 
-		cout << "Entry " << i << endl;
-		cout << "Node: " << inet_ntop(AF_INET, &rtable[i].destadr.sin_addr, ipadd, INET_ADDRSTRLEN) << endl;
-		cout << "Next: " << inet_ntop(AF_INET, &rtable[i].nexthop.sin_addr, ipadd, INET_ADDRSTRLEN) << endl;
-		cout << "Cost: " << rtable[i].cost << endl;
-		cout << "TTL : " << rtable[i].ttl << endl;
-		cout << endl;
+		printf("%-15s %-15s %4d %4d\n", 	inet_ntop(AF_INET, &rtable[i].destadr.sin_addr, ipadd, INET_ADDRSTRLEN),
+										inet_ntop(AF_INET, &rtable[i].nexthop.sin_addr, ipadd, INET_ADDRSTRLEN),
+										rtable[i].cost,
+										rtable[i].ttl );
+		
 	}
+
+
 }
 
 void *update(void* a){
     while(true){
         displayRoutingTable();
-        sleep(5);
+        sleep(period);
         decrementTTLs();
         sendAdv();          
     }
@@ -340,6 +356,7 @@ void refreshValues(string destination, string costtodestination, char *through){
 
     int index;
     char dest_ip[INET_ADDRSTRLEN];
+    char next_ip[INET_ADDRSTRLEN];
 
     for(index = 1; index < node_count; index++){
         inet_ntop(AF_INET, &rtable[index].destadr.sin_addr, dest_ip, INET_ADDRSTRLEN);
@@ -355,16 +372,23 @@ void refreshValues(string destination, string costtodestination, char *through){
     }
 
     int current_cost = rtable[index].cost;
-    int given_cost = stoi(costtodestination);
+    int new_cost = stoi(costtodestination);
 
-    if(given_cost + 1 < current_cost){
+    if(new_cost + 1 < current_cost){
         rtable[index].ttl = ttl;
-        rtable[index].cost = given_cost + 1;
+        rtable[index].cost = new_cost + 1;
         inet_pton(AF_INET, through, &rtable[index].nexthop.sin_addr);
 
         //displayGraph();
         //displayRoutingTable();
     }
+    else if(  strcmp(inet_ntop(AF_INET, &rtable[index].nexthop.sin_addr, next_ip, INET_ADDRSTRLEN),
+    				 through) == 0){ // nexthop for a particular node has an increased cost
+    	rtable[index].cost = new_cost + 1;
+    	rtable[index].ttl = ttl;
+    }
+
+
 }
 
 int hostnameToIp(const char * hostname , sockaddr_in* node){
@@ -383,12 +407,20 @@ int hostnameToIp(const char * hostname , sockaddr_in* node){
 	return 0;
 }
 
-string makeAdv(){
+string makeAdv(char *recr_ip){
 	char ipadd[INET_ADDRSTRLEN];
+	char next_ip[INET_ADDRSTRLEN];
 
 	string adv = "";
 	
 	for(int i = 1; i < node_count; i++){
+		inet_ntop(AF_INET, &rtable[i].nexthop.sin_addr, next_ip, INET_ADDRSTRLEN);
+		if(shflag && (strcmp(recr_ip, next_ip) == 0)){
+			// implies route has been learnt from node to which Adv will be sent to
+			// so skip this entry
+			continue;
+		}
+
 		adv.append(inet_ntop(AF_INET, &rtable[i].destadr.sin_addr, ipadd, INET_ADDRSTRLEN));
 		adv.append(",");
 		
@@ -399,8 +431,6 @@ string makeAdv(){
 }
 
 void sendAdv(){
-    string adv = makeAdv();
-    
     int udp_socket, no_of_bytes;
     struct sockaddr_in server_address;
     struct hostent *server;
@@ -412,8 +442,14 @@ void sendAdv(){
        return;
     }
     
-    for(int i = 0; i < node_count; i++){
+    for(int i = 1; i < node_count; i++){
         if(is_neighbour[i]){
+            char temp_ip[INET_ADDRSTRLEN];
+            inet_ntop(AF_INET, &rtable[i].destadr.sin_addr, temp_ip, INET_ADDRSTRLEN);
+
+            string adv = makeAdv(temp_ip);
+                     
+
             server = gethostbyname(nodes[i].c_str());
 
             //cout << "Sending to: " << nodes[i] << " ";

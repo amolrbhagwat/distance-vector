@@ -60,6 +60,8 @@ int		graph[MAX_NODES][MAX_NODES];
 int 	node_count = 0; 					// total number of nodes in the network, including itself
 int 	neighbour_count = 0; 				// number of neigbhours
 
+pthread_mutex_t lock;
+
 struct 	RouteEntry {
 	struct sockaddr_in destadr;  			// address of the destination
 	struct sockaddr_in nexthop;  			// address of the next hop
@@ -89,6 +91,11 @@ int main(int argc, char* argv[]) {
 	initialize();
 			
 	pthread_t thread_update, thread_listener;
+	
+	if (pthread_mutex_init(&lock, NULL) != 0){
+	    printf("Mutex initialization failed!\n");
+	    return 1;
+	}
 
 	if( pthread_create( &thread_update , NULL , update , NULL) < 0){
 	      cout << "Could not create update thread.\n";
@@ -101,6 +108,7 @@ int main(int argc, char* argv[]) {
 
 	pthread_join(thread_update, NULL);
 	pthread_join(thread_listener, NULL);
+	pthread_mutex_destroy(&lock);
 
 	return 0;
 }
@@ -168,9 +176,13 @@ void *update(void* a){
     	displayGraph();
         displayRoutingTable();
         sleep(period);
+        // lock mutex
+        pthread_mutex_lock(&lock);
         decrementTTLs();
         updateRoutingTable();
-        sendAdv();          
+        sendAdv();
+        // unlock mutex  
+        pthread_mutex_unlock(&lock);        
     }
     return NULL;
 }
@@ -231,7 +243,11 @@ void *getAdvs(void *b) {
 		cout << "\nReceived from: " << from_ip << " " << hp->h_name << " Index: " << getIndexFromAddr(from_ip) << endl;
         cout << buffer << endl;
         
+        // lock mutex
+        pthread_mutex_lock(&lock);
 		processAdv(buffer, from_ip);
+		// unlock mutex
+		pthread_mutex_unlock(&lock);
 	}
 	return NULL;
 }
@@ -285,7 +301,7 @@ void processAdv(char* recdadv, char* heard_from_ip){
     if(graph_updated){
     	displayGraph();
     	cout << "Graph was updated.\n";
-    	if(updateRoutingTable()/*getIndexFromAddr(heard_from_ip)*/){
+    	if(updateRoutingTable(getIndexFromAddr(heard_from_ip))){
     		displayRoutingTable();
     		cout << "Table was updated based on adv. received." << endl;
     		sendAdv();
@@ -328,11 +344,30 @@ bool updateRoutingTable(int updated_row){
 	bool table_updated = false;
 
 	for(int i = 1; i < node_count; i++){
+		if(updated_row == i){continue;}
+
 		char temp_ip[INET_ADDRSTRLEN];
-		if( getIndexFromAddr(inet_ntop(AF_INET, &rtable[i].nexthop.sin_addr, temp_ip, INET_ADDRSTRLEN)) == updated_row ){
+		bzero(temp_ip, INET_ADDRSTRLEN);
+
+		int new_cost = graph[updated_row][i] + graph[0][updated_row];
+
+		// cost to dest + cost to source < own cost to dest
+		
+		if(new_cost < graph[0][i] && new_cost <= infinity){
+			graph[0][i] = new_cost;
+			
+			rtable[i].cost = new_cost;
+			rtable[i].ttl = ttl;
+			hostnameToIp(nodes[updated_row].c_str(), &rtable[i].nexthop);
+			
+			table_updated = true;
+		}
+
+		if( (getIndexFromAddr(inet_ntop(AF_INET, &rtable[i].nexthop.sin_addr, temp_ip, INET_ADDRSTRLEN)) == updated_row) 
+			&& !is_neighbour[updated_row]){
 			// got adv that a node's cost has incr, and if we are routing to that node via whom we heard the adv from
 
-			graph[0][i] = graph[updated_row][i];
+			graph[0][i] = graph[updated_row][i] + graph[0][updated_row];
 
 			rtable[i].cost = graph[0][i];
 			
@@ -343,18 +378,6 @@ bool updateRoutingTable(int updated_row){
 			continue;
 		}
 
-		int new_cost = graph[updated_row][i] + graph[0][updated_row];
-
-		// cost to dest + cost to source < own cost to dest
-		if(new_cost < graph[0][i] && new_cost <= infinity){
-			graph[0][i] = new_cost;
-			
-			rtable[i].cost = new_cost;
-			rtable[i].ttl = ttl;
-			hostnameToIp(nodes[updated_row].c_str(), &rtable[i].nexthop);
-			
-			table_updated = true;
-		}
 	}	
 
 	return table_updated;	

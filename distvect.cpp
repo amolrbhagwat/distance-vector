@@ -176,13 +176,13 @@ void *update(void* a){
     	displayGraph();
         displayRoutingTable();
         sleep(period);
-        // lock mutex
+        
         pthread_mutex_lock(&lock);
         decrementTTLs();
         updateRoutingTable();
         sendAdv();
-        // unlock mutex  
         pthread_mutex_unlock(&lock);        
+    
     }
     return NULL;
 }
@@ -242,11 +242,9 @@ void *getAdvs(void *b) {
 		hp = gethostbyaddr(&client_address.sin_addr, sizeof(client_address.sin_addr), AF_INET);
 		cout << "\nReceived from: " << from_ip << " " << hp->h_name << " Index: " << getIndexFromAddr(from_ip) << endl;
         cout << buffer << endl;
-        
-        // lock mutex
+                
         pthread_mutex_lock(&lock);
 		processAdv(buffer, from_ip);
-		// unlock mutex
 		pthread_mutex_unlock(&lock);
 	}
 	return NULL;
@@ -282,7 +280,7 @@ void processAdv(char* recdadv, char* heard_from_ip){
     	strcpy(token_cost, temp_str);
     	string costtodestination(token_cost);
     	
-    	graph_updated = graph_updated | updateGraph(heard_from_index, destination, costtodestination);
+    	graph_updated =  updateGraph(heard_from_index, destination, costtodestination) | graph_updated;
     	
         temp_str = strtok (NULL, ",;");
     }
@@ -340,7 +338,9 @@ bool updateGraph(int heard_from_index, string destination, string costtodestinat
 
 
 bool updateRoutingTable(int updated_row){
-	
+	cout << "Row updated was: " << updated_row << endl;
+
+
 	bool table_updated = false;
 
 	for(int i = 1; i < node_count; i++){
@@ -350,18 +350,6 @@ bool updateRoutingTable(int updated_row){
 		bzero(temp_ip, INET_ADDRSTRLEN);
 
 		int new_cost = graph[updated_row][i] + graph[0][updated_row];
-
-		// cost to dest + cost to source < own cost to dest
-		
-		if(new_cost < graph[0][i] && new_cost <= infinity){
-			graph[0][i] = new_cost;
-			
-			rtable[i].cost = new_cost;
-			rtable[i].ttl = ttl;
-			hostnameToIp(nodes[updated_row].c_str(), &rtable[i].nexthop);
-			
-			table_updated = true;
-		}
 
 		if( (getIndexFromAddr(inet_ntop(AF_INET, &rtable[i].nexthop.sin_addr, temp_ip, INET_ADDRSTRLEN)) == updated_row) 
 			&& !is_neighbour[updated_row]){
@@ -378,6 +366,21 @@ bool updateRoutingTable(int updated_row){
 			continue;
 		}
 
+
+		// cost to dest + cost to source < own cost to dest
+		
+		if(new_cost < graph[0][i] && new_cost < infinity){
+			graph[0][i] = new_cost;
+			
+			rtable[i].cost = new_cost;
+			rtable[i].ttl = ttl;
+			hostnameToIp(nodes[updated_row].c_str(), &rtable[i].nexthop);
+			cout << "i = " << i << endl;
+			table_updated = true;
+			continue;
+		}
+
+		
 	}	
 
 	return table_updated;	

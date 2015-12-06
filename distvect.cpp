@@ -25,28 +25,28 @@ using 	namespace std;
 #define BUFFER_SIZE 1472
 
 
-void initialize();
-void generateGraph();
-void generateRoutingTable();
-void *update(void*);
-void decrementTTLs();
-void sendAdv();
-void *getAdvs(void*);
-void processAdv(char *, char*);
+void	initialize();
+void	generateGraph();
+void	generateRoutingTable();
+void	*update(void*);
+void	decrementTTLs();
+void	sendAdv();
+void	*getAdvs(void*);
+void 	processAdv(char *, char*);
 
-int hostnameToIp(const char*, sockaddr_in*);
-void readConfigFile();
-void displayGraph();
-void displayRoutingTable();
-string makeAdv(char *);
-void showStats();
-bool updateGraph(int, string, string);
-int getIndexFromAddr(const char*);
-bool updateRoutingTable(int);
-bool updateRoutingTable();
-char configfilename[15];	
+int 	hostnameToIp(const char*, sockaddr_in*);
+void 	readConfigFile();
+void	displayGraph();
+void 	displayRoutingTable();
+string 	makeAdv(char *);
+void 	showStats();
+bool 	updateGraph(int, string, string);
+int 	getIndexFromAddr(const char*);
+bool 	updateRoutingTable(int);
+bool	 updateRoutingTable();
+char 	configfilename[15];	
 	
-int portno, infinity;
+int 	portno, infinity;
 u_short ttl;
 u_short period;
 int 	shflag = 0; 						// split horizon flag
@@ -60,8 +60,6 @@ int		graph[MAX_NODES][MAX_NODES];
 int 	node_count = 0; 					// total number of nodes in the network, including itself
 int 	neighbour_count = 0; 				// number of neigbhours
 
-pthread_mutex_t lock;
-
 struct 	RouteEntry {
 	struct sockaddr_in destadr;  			// address of the destination
 	struct sockaddr_in nexthop;  			// address of the next hop
@@ -69,6 +67,7 @@ struct 	RouteEntry {
 	u_short ttl;  							// TTL in seconds
 } rtable[MAX_NODES];
 	
+pthread_mutex_t lock;
 
 int main(int argc, char* argv[]) {
 	// check the parameters	
@@ -129,9 +128,11 @@ void generateGraph(){
 			graph[i][j] = infinity;
 		}
 	}
+	// diagonal with zeros
 	for(int i = 0; i < node_count; i++){
 		graph[i][i] = 0;
 	}
+	// own vector
 	for(int i = 1; i < node_count; i++){
 		if(is_neighbour[i]){
 			graph[0][i] = 1;
@@ -142,8 +143,7 @@ void generateGraph(){
 	}
 }
 
-void generateRoutingTable(){
-	
+void generateRoutingTable(){	
 	// for own entry
 	
 	hostnameToIp(nodes[0].c_str(), &rtable[0].destadr);
@@ -194,7 +194,7 @@ void decrementTTLs(){
 		}
 		rtable[i].ttl -= period;
 		if(rtable[i].ttl == 0){
-			rtable[i].nexthop.sin_addr.s_addr = 0;
+			rtable[i].nexthop.sin_addr.s_addr = 0; // setting null as next hop
             rtable[i].cost = infinity;
             graph[0][i] = infinity;
 			//rtable[i].ttl = ttl;
@@ -240,7 +240,7 @@ void *getAdvs(void *b) {
 		inet_ntop(AF_INET, &client_address.sin_addr, from_ip, INET_ADDRSTRLEN);// << endl;
 		struct hostent *hp;
 		hp = gethostbyaddr(&client_address.sin_addr, sizeof(client_address.sin_addr), AF_INET);
-		cout << "\nReceived from: " << from_ip << " " << hp->h_name << " Index: " << getIndexFromAddr(from_ip) << endl;
+		cout << "\nReceived from: (" << getIndexFromAddr(from_ip) << ") " << from_ip << " " << hp->h_name << endl;
         cout << buffer << endl;
                 
         pthread_mutex_lock(&lock);
@@ -340,7 +340,6 @@ bool updateGraph(int heard_from_index, string destination, string costtodestinat
 bool updateRoutingTable(int updated_row){
 	cout << "Row updated was: " << updated_row << endl;
 
-
 	bool table_updated = false;
 
 	for(int i = 1; i < node_count; i++){
@@ -359,7 +358,7 @@ bool updateRoutingTable(int updated_row){
 
 			rtable[i].cost = graph[0][i];
 			
-			// the destination node should not be a neighbor, in order to prevent a loop
+			// the destination node should not be a neighbor ,in order to prevent a loop
 			if(!is_neighbour[i]){
 				rtable[i].ttl = ttl;
 			}
@@ -375,7 +374,6 @@ bool updateRoutingTable(int updated_row){
 			rtable[i].cost = new_cost;
 			rtable[i].ttl = ttl;
 			hostnameToIp(nodes[updated_row].c_str(), &rtable[i].nexthop);
-			cout << "i = " << i << endl;
 			table_updated = true;
 			continue;
 		}
@@ -607,17 +605,6 @@ void displayGraph(){
 void displayRoutingTable(){
 		
 	cout << "\nRouting table:\n";
-
-	/*for(int i = 0; i < node_count; i++){
-		char ipadd[INET_ADDRSTRLEN];
-
-		cout << "Entry " << i << endl;
-		cout << "Node: " << inet_ntop(AF_INET, &rtable[i].destadr.sin_addr, ipadd, INET_ADDRSTRLEN);// << endl;
-		cout << " Next: " << inet_ntop(AF_INET, &rtable[i].nexthop.sin_addr, ipadd, INET_ADDRSTRLEN) << endl;
-		cout << "Cost: " << rtable[i].cost;// << endl;
-		cout << " TTL : " << rtable[i].ttl << endl;
-		cout << endl;
-	}*/
 
 	printf("%3s %-15s %-15s %-4s %4s\n", "Num", "Node", "Next", "Cost", "TTL");
 

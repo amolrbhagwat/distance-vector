@@ -1,3 +1,8 @@
+/*
+CN Assignmnent 3
+Amol Bhagwat
+*/
+
 #include <iostream>
 #include <stdio.h>
 #include <sys/types.h>
@@ -30,13 +35,15 @@ void *getAdvs(void*);
 void processAdv(char *, char*);
 
 int hostnameToIp(const char*, sockaddr_in*);
-void refreshValues(string, string, char*);
 void readConfigFile();
 void displayGraph();
 void displayRoutingTable();
 string makeAdv(char *);
 void showStats();
-
+bool updateGraph(int, string, string);
+int getIndexFromAddr(const char*);
+bool updateRoutingTable(int);
+bool updateRoutingTable();
 char configfilename[15];	
 	
 int portno, infinity;
@@ -77,7 +84,7 @@ int main(int argc, char* argv[]) {
 	period = atoi(argv[5]);
 	shflag = atoi(argv[6]);
 
-	showStats();
+	//showStats();
 	
 	initialize();
 			
@@ -107,46 +114,16 @@ void initialize(){
 	displayRoutingTable();
 }
 
-void readConfigFile(){
-	char line[MAX_LINE_LENGTH];
-	char *nodename;
-	char *nbr;
-	
-	is_neighbour[0] = false;
-	nodes[0] = "localhost";
-	
-	int i = 1;
-	
-	ifstream configfile(configfilename);
-
-	while(configfile.getline(line, MAX_LINE_LENGTH, '\n')){
-		nodename = strtok(line, " ");
-		nbr = strtok(NULL, " ");
-		string temp = nbr;
-		
-		is_neighbour[i] = false;
-		
-		if(temp.compare("yes") == 0){
-			neighbours[neighbour_count] = nodename;
-			neighbour_count++;
-			is_neighbour[i] = true;
-		}
-		// store all nodes
-		nodes[i] = nodename;
-		bzero(line, MAX_LINE_LENGTH);
-		i++;
-	}  
-
-	node_count = i;  
-}
-
 void generateGraph(){
+	// fill all cells with infinity
 	for(int i = 0; i < node_count; i++){
 		for(int j = 0; j < node_count; j++){
 			graph[i][j] = infinity;
 		}
 	}
-    graph[0][0] = 0;
+	for(int i = 0; i < node_count; i++){
+		graph[i][i] = 0;
+	}
 	for(int i = 1; i < node_count; i++){
 		if(is_neighbour[i]){
 			graph[0][i] = 1;
@@ -154,23 +131,6 @@ void generateGraph(){
 		else{
 			graph[0][i] = infinity;
 		}
-	}
-}
-
-void displayGraph(){
-	int a = 0;
-	printf("--"); 
-	while(a < node_count){
-		printf(" %2d", a);
-		a++;	
-	}
-	printf("\n");
-	for(int i = 0; i < node_count; i++){
-		printf("%2d ", i);
-		for(int j = 0; j < node_count; j++){
-			printf("%2d ", graph[i][j]);
-		}
-		printf("\n");
 	}
 }
 
@@ -196,48 +156,20 @@ void generateRoutingTable(){
 			rtable[i].cost = 1;			
 		}
 		else{
+			rtable[i].nexthop.sin_addr.s_addr = 0;
 			rtable[i].cost = infinity;	
 		}
 		rtable[i].ttl = ttl;
 	}
 }
 
-void displayRoutingTable(){
-	cout << "\033[H\033[2J";
-		
-	cout << "Routing table:\n";
-
-	/*for(int i = 0; i < node_count; i++){
-		char ipadd[INET_ADDRSTRLEN];
-
-		cout << "Entry " << i << endl;
-		cout << "Node: " << inet_ntop(AF_INET, &rtable[i].destadr.sin_addr, ipadd, INET_ADDRSTRLEN);// << endl;
-		cout << " Next: " << inet_ntop(AF_INET, &rtable[i].nexthop.sin_addr, ipadd, INET_ADDRSTRLEN) << endl;
-		cout << "Cost: " << rtable[i].cost;// << endl;
-		cout << " TTL : " << rtable[i].ttl << endl;
-		cout << endl;
-	}*/
-
-	printf("%-15s %-15s %-4s %4s\n", "Node", "Next", "Cost", "TTL");
-
-	for(int i = 0; i < node_count; i++){
-		char ipadd[INET_ADDRSTRLEN];
-
-		printf("%-15s %-15s %4d %4d\n", 	inet_ntop(AF_INET, &rtable[i].destadr.sin_addr, ipadd, INET_ADDRSTRLEN),
-										inet_ntop(AF_INET, &rtable[i].nexthop.sin_addr, ipadd, INET_ADDRSTRLEN),
-										rtable[i].cost,
-										rtable[i].ttl );
-		
-	}
-
-
-}
-
 void *update(void* a){
     while(true){
-        displayRoutingTable();
-        sleep(period);
+    	sleep(period);
         decrementTTLs();
+        updateRoutingTable();
+        displayGraph();
+        displayRoutingTable();
         sendAdv();          
     }
     return NULL;
@@ -245,12 +177,15 @@ void *update(void* a){
 
 void decrementTTLs(){
 	for(int i = 1; i < node_count; i++){
+		if(rtable[i].ttl == 0){
+			continue;
+		}
 		rtable[i].ttl -= period;
 		if(rtable[i].ttl == 0){
 			rtable[i].nexthop.sin_addr.s_addr = 0;
             rtable[i].cost = infinity;
             graph[0][i] = infinity;
-			rtable[i].ttl = ttl;
+			//rtable[i].ttl = ttl;
 		}
 	}
 }
@@ -260,7 +195,7 @@ void *getAdvs(void *b) {
 	struct sockaddr_in server_address, client_address;
 	socklen_t client_length;
 	char buffer[BUFFER_SIZE];
-	char from_ip[INET_ADDRSTRLEN];
+	char from_ip[INET_ADDRSTRLEN]; // holds ip address of node from which adv was received
 	bzero(buffer, BUFFER_SIZE);
 		
 	server_socket = socket(AF_INET, SOCK_DGRAM, 0);
@@ -290,105 +225,151 @@ void *getAdvs(void *b) {
 		bzero(buffer, BUFFER_SIZE);
 		no_of_bytes = recvfrom(server_socket,buffer,BUFFER_SIZE,0,(struct sockaddr *)&client_address,&client_length);
 
-		//cout << "Received: " << buffer << endl;
-		//cout << "From: " << 
-        inet_ntop(AF_INET, &client_address.sin_addr, from_ip, INET_ADDRSTRLEN);// << endl;
-		
+		inet_ntop(AF_INET, &client_address.sin_addr, from_ip, INET_ADDRSTRLEN);// << endl;
+		struct hostent *hp;
+		hp = gethostbyaddr(&client_address.sin_addr, sizeof(client_address.sin_addr), AF_INET);
+		cout << "\nReceived from: " << from_ip << " " << hp->h_name << " Index: " << getIndexFromAddr(from_ip) << endl;
+        cout << buffer << endl;
+        
 		processAdv(buffer, from_ip);
 	}
 	return NULL;
 }
 
-void processAdv(char* recdadv, char* from_ip){
-	// when a advertisement is receieved from a neighbour, the neighbour's TTL is restored
-    // then check each and every entry in the advertisement, if there's a lower cost and make updates as needed
-    // finally, for all nodes in rtable which have as nexthop, the node from which adv was recd, restore TTL
+void processAdv(char* recdadv, char* heard_from_ip){
+	
+	int heard_from_index = getIndexFromAddr(heard_from_ip);
+	if(heard_from_index == -1 || heard_from_index == node_count || !is_neighbour[heard_from_index]){
+		/* got an advertisement from a non-neighbour or node a registered node*/
+		return;
+	}
 
+	// restoring all fields of the node from which ad was received
+	rtable[heard_from_index].ttl = ttl;
+	rtable[heard_from_index].cost = 1;
+	hostnameToIp(nodes[heard_from_index].c_str(), &rtable[heard_from_index].nexthop);
+	graph[0][heard_from_index] = 1;
 
-    // restoring neighbour's TTL
+	// now updating the graph
+    bool graph_updated = false;
 
+    char token_ip[20], token_cost[20];
+    char *temp_str;
+
+    temp_str = strtok (recdadv,",;");
+
+    while (temp_str != NULL)	{
+    	strcpy(token_ip, temp_str);
+    	string destination(token_ip);
+    	
+    	temp_str = strtok (NULL, ",;");
+    	strcpy(token_cost, temp_str);
+    	string costtodestination(token_cost);
+    	
+    	graph_updated = graph_updated | updateGraph(heard_from_index, destination, costtodestination);
+    	
+        temp_str = strtok (NULL, ",;");
+    }
+
+    // for all nodes in rtable which have as nexthop, the node from which adv was recd, restore TTL
+    // (remaining nodes which are connected through the node which advertised)
+    
     char temp_ip[INET_ADDRSTRLEN];
-
     for(int i = 1; i < node_count; i++){
-        inet_ntop(AF_INET, &rtable[i].destadr.sin_addr, temp_ip, INET_ADDRSTRLEN);
-        if(strcmp(temp_ip, from_ip) == 0 && is_neighbour[i]){
-            cout << "Heard from: " << from_ip << endl;
-            rtable[i].cost = 1;
+        inet_ntop(AF_INET, &rtable[i].nexthop.sin_addr, temp_ip, INET_ADDRSTRLEN);
+        if(strcmp(temp_ip, heard_from_ip) == 0){
             rtable[i].ttl = ttl;
-            hostnameToIp(nodes[i].c_str(), &rtable[i].nexthop);
-            break;
         }
     }
 
-    // check for lower costs, and update/refresh if needed
-
-    char token1[20], token2[20];
-	char *temp_str;
-
-	temp_str = strtok (recdadv,",:");
-
-	while (temp_str != NULL)	{
-		strcpy(token1, temp_str);
-		string destination(token1);
-		
-		temp_str = strtok (NULL, ",;");
-		strcpy(token2, temp_str);
-		string costtodestination(token2);
-		
-        refreshValues(destination, costtodestination, from_ip);	
-		
-		temp_str = strtok (NULL, ",;");		
-	}
-
-    // for the remaining nodes connected through the node which advertised, restore TTL
-    
-    for(int i = 1; i < node_count; i++){
-        inet_ntop(AF_INET, &rtable[i].nexthop.sin_addr, temp_ip, INET_ADDRSTRLEN);
-        if(strcmp(temp_ip, from_ip) == 0){
-            rtable[i].ttl = ttl;
-        }
+    if(graph_updated){
+    	displayGraph();
+    	cout << "Graph was updated.\n";
+    	if(updateRoutingTable()/*getIndexFromAddr(heard_from_ip)*/){
+    		displayRoutingTable();
+    		cout << "Table was updated based on adv. received." << endl;
+    		sendAdv();
+    	}
     }
 }
 
-void refreshValues(string destination, string costtodestination, char *through){
-    //cout << "Destination: " << destination << endl;
-    //cout << "Cost: " << costtodestination << endl;
+bool updateGraph(int heard_from_index, string destination, string costtodestination){
+	char twmp[INET_ADDRSTRLEN];
+	//cout << "updateGraph() " << heard_from_index << " " << inet_ntop(AF_INET, &rtable[heard_from_index].destadr.sin_addr, twmp, INET_ADDRSTRLEN) << endl;
+	//cout << "dest " << destination << endl;					
 
-    int index;
-    char dest_ip[INET_ADDRSTRLEN];
-    char next_ip[INET_ADDRSTRLEN];
+	// fills up the corresponding cell in the matrix
+	char temp_ip[INET_ADDRSTRLEN];
+	int to_index = -1;
+	for(int i = 1; i < node_count; i++){
+		inet_ntop(AF_INET, &rtable[i].destadr.sin_addr, temp_ip, INET_ADDRSTRLEN);
+		if(strcmp(temp_ip, destination.c_str()) == 0){
+			to_index = i;
+			break;
+		}
+	}
+	if(to_index == -1){
+		return false;
+	}
 
-    for(index = 1; index < node_count; index++){
-        inet_ntop(AF_INET, &rtable[index].destadr.sin_addr, dest_ip, INET_ADDRSTRLEN);
-        if(strcmp(dest_ip, destination.c_str()) == 0){
-            //cout << destination << " found at index " << index << endl;
-            break;
-        }
-    }
+	//cout << "dest index: " << to_index << endl;
+	int cost = stoi(costtodestination);
+	
+	bool cost_changed = (graph[heard_from_index][to_index] != cost);
 
-    if(index == node_count){
-        // not found
-        return;
-    }
-
-    int current_cost = rtable[index].cost;
-    int new_cost = stoi(costtodestination);
-
-    if(new_cost + 1 < current_cost){
-        rtable[index].ttl = ttl;
-        rtable[index].cost = new_cost + 1;
-        inet_pton(AF_INET, through, &rtable[index].nexthop.sin_addr);
-
-        //displayGraph();
-        //displayRoutingTable();
-    }
-    else if(  strcmp(inet_ntop(AF_INET, &rtable[index].nexthop.sin_addr, next_ip, INET_ADDRSTRLEN),
-    				 through) == 0){ // nexthop for a particular node has an increased cost
-    	rtable[index].cost = new_cost + 1;
-    	rtable[index].ttl = ttl;
-    }
+	if(cost_changed){
+		graph[heard_from_index][to_index] = cost;
+	}
+	
+	return cost_changed;
+}
 
 
+bool updateRoutingTable(int updated_row){
+	bool table_updated = false;
+
+	for(int i = 1; i < node_count; i++){
+		// cost to dest + cost to source < own cost to dest
+
+		int new_cost = graph[updated_row][i] + graph[0][updated_row];
+
+		if(new_cost < graph[0][i]){
+			graph[0][i] = new_cost;
+			
+			rtable[i].cost = new_cost;
+			rtable[i].ttl = ttl;
+			hostnameToIp(nodes[updated_row].c_str(), &rtable[i].nexthop);
+			
+			table_updated = true;
+		}
+	}	
+
+	return table_updated;	
+}
+
+bool updateRoutingTable(){
+	bool table_updated = false;
+
+	for(int row = 0; row < node_count; row++){
+		for(int i = 1; i < node_count; i++){
+			// cost to dest + cost to source < own cost to dest
+
+			int new_cost = graph[row][i] + graph[0][row];
+			//cout << "\nold cost " << graph[0][i] << " new cost " << new_cost;// << endl;
+			if(new_cost < graph[0][i]){
+				//cout << "new is less\n";
+				graph[0][i] = new_cost;
+						
+				rtable[i].cost = new_cost;
+				rtable[i].ttl = ttl;
+				hostnameToIp(nodes[row].c_str(), &rtable[i].nexthop);
+				
+				table_updated = true;
+			}
+		}	
+	}
+
+	return table_updated;	
 }
 
 int hostnameToIp(const char * hostname , sockaddr_in* node){
@@ -496,3 +477,100 @@ void showStats(){
 	cout << "Neighbour count: " << neighbour_count << endl;
 }
 
+void readConfigFile(){
+	char line[MAX_LINE_LENGTH];
+	char *nodename;
+	char *nbr;
+	
+	is_neighbour[0] = false;
+	nodes[0] = "localhost";
+	
+	int i = 1;
+	
+	ifstream configfile(configfilename);
+
+	while(configfile.getline(line, MAX_LINE_LENGTH, '\n')){
+		nodename = strtok(line, " ");
+		nbr = strtok(NULL, " ");
+		string temp = nbr;
+		
+		is_neighbour[i] = false;
+		
+		if(temp.compare("yes") == 0){
+			neighbours[neighbour_count] = nodename;
+			neighbour_count++;
+			is_neighbour[i] = true;
+		}
+		// store all nodes
+		nodes[i] = nodename;
+		bzero(line, MAX_LINE_LENGTH);
+		i++;
+	}  
+
+	node_count = i;  
+}
+
+int getIndexFromAddr(const char* heard_from_ip){
+	char temp_ip[INET_ADDRSTRLEN];
+	int heard_from_index = -1;
+	// to find index of node from which advertisement was heard from
+    for(int i = 1; i < node_count; i++){
+        inet_ntop(AF_INET, &rtable[i].destadr.sin_addr, temp_ip, INET_ADDRSTRLEN);
+        if(strcmp(temp_ip, heard_from_ip) == 0 && is_neighbour[i]){
+            heard_from_index = i;
+            break;
+        }
+    }
+    return heard_from_index;
+}
+
+void displayGraph(){
+	//cout << "\033[H\033[2J";
+	cout << endl;
+	int a = 0;
+	printf("--"); 
+	while(a < node_count){
+		printf(" %2d", a);
+		a++;	
+	}
+	printf("\n");
+	for(int i = 0; i < node_count; i++){
+		printf("%2d ", i);
+		for(int j = 0; j < node_count; j++){
+			printf("%2d ", graph[i][j]);
+		}
+		cout << nodes[i];
+		printf("\n");
+	}
+}
+
+void displayRoutingTable(){
+		
+	cout << "\nRouting table:\n";
+
+	/*for(int i = 0; i < node_count; i++){
+		char ipadd[INET_ADDRSTRLEN];
+
+		cout << "Entry " << i << endl;
+		cout << "Node: " << inet_ntop(AF_INET, &rtable[i].destadr.sin_addr, ipadd, INET_ADDRSTRLEN);// << endl;
+		cout << " Next: " << inet_ntop(AF_INET, &rtable[i].nexthop.sin_addr, ipadd, INET_ADDRSTRLEN) << endl;
+		cout << "Cost: " << rtable[i].cost;// << endl;
+		cout << " TTL : " << rtable[i].ttl << endl;
+		cout << endl;
+	}*/
+
+	printf("%3s %-15s %-15s %-4s %4s\n", "Num", "Node", "Next", "Cost", "TTL");
+
+	for(int i = 0; i < node_count; i++){
+		char destadd[INET_ADDRSTRLEN];
+		char nextadd[INET_ADDRSTRLEN];
+
+		printf("%3d %-15s %-15s %4d %4d ", 	
+										i,
+										inet_ntop(AF_INET, &rtable[i].destadr.sin_addr, destadd, INET_ADDRSTRLEN),
+										inet_ntop(AF_INET, &rtable[i].nexthop.sin_addr, nextadd, INET_ADDRSTRLEN),
+										rtable[i].cost,
+										rtable[i].ttl );
+		cout << nodes[i] << endl;
+	}
+}

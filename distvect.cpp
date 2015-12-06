@@ -109,9 +109,9 @@ void initialize(){
 	readConfigFile();
 	generateGraph();
 	cout << "Initial graph:\n";
-	displayGraph();
+	//displayGraph();
 	generateRoutingTable();
-	displayRoutingTable();
+	//displayRoutingTable();
 }
 
 void generateGraph(){
@@ -165,11 +165,11 @@ void generateRoutingTable(){
 
 void *update(void* a){
     while(true){
-    	sleep(period);
+    	displayGraph();
+        displayRoutingTable();
+        sleep(period);
         decrementTTLs();
         updateRoutingTable();
-        displayGraph();
-        displayRoutingTable();
         sendAdv();          
     }
     return NULL;
@@ -271,13 +271,13 @@ void processAdv(char* recdadv, char* heard_from_ip){
         temp_str = strtok (NULL, ",;");
     }
 
-    // for all nodes in rtable which have as nexthop, the node from which adv was recd, restore TTL
+    // for all nodes in rtable which have as nexthop, the node from which adv was recd, restore TTL, unless new cost = infinity
     // (remaining nodes which are connected through the node which advertised)
     
     char temp_ip[INET_ADDRSTRLEN];
     for(int i = 1; i < node_count; i++){
         inet_ntop(AF_INET, &rtable[i].nexthop.sin_addr, temp_ip, INET_ADDRSTRLEN);
-        if(strcmp(temp_ip, heard_from_ip) == 0){
+        if((strcmp(temp_ip, heard_from_ip) == 0) && graph[heard_from_index][i] != infinity){
             rtable[i].ttl = ttl;
         }
     }
@@ -294,7 +294,7 @@ void processAdv(char* recdadv, char* heard_from_ip){
 }
 
 bool updateGraph(int heard_from_index, string destination, string costtodestination){
-	char twmp[INET_ADDRSTRLEN];
+	//char twmp[INET_ADDRSTRLEN];
 	//cout << "updateGraph() " << heard_from_index << " " << inet_ntop(AF_INET, &rtable[heard_from_index].destadr.sin_addr, twmp, INET_ADDRSTRLEN) << endl;
 	//cout << "dest " << destination << endl;					
 
@@ -312,11 +312,9 @@ bool updateGraph(int heard_from_index, string destination, string costtodestinat
 		return false;
 	}
 
-	//cout << "dest index: " << to_index << endl;
 	int cost = stoi(costtodestination);
 	
 	bool cost_changed = (graph[heard_from_index][to_index] != cost);
-
 	if(cost_changed){
 		graph[heard_from_index][to_index] = cost;
 	}
@@ -326,14 +324,29 @@ bool updateGraph(int heard_from_index, string destination, string costtodestinat
 
 
 bool updateRoutingTable(int updated_row){
+	
 	bool table_updated = false;
 
 	for(int i = 1; i < node_count; i++){
-		// cost to dest + cost to source < own cost to dest
+		char temp_ip[INET_ADDRSTRLEN];
+		if( getIndexFromAddr(inet_ntop(AF_INET, &rtable[i].nexthop.sin_addr, temp_ip, INET_ADDRSTRLEN)) == updated_row ){
+			// got adv that a node's cost has incr, and if we are routing to that node via whom we heard the adv from
+
+			graph[0][i] = graph[updated_row][i];
+
+			rtable[i].cost = graph[0][i];
+			
+			// the destination node should not be a neighbor, in order to prevent a loop
+			if(!is_neighbour[i]){
+				rtable[i].ttl = ttl;
+			}
+			continue;
+		}
 
 		int new_cost = graph[updated_row][i] + graph[0][updated_row];
 
-		if(new_cost < graph[0][i]){
+		// cost to dest + cost to source < own cost to dest
+		if(new_cost < graph[0][i] && new_cost <= infinity){
 			graph[0][i] = new_cost;
 			
 			rtable[i].cost = new_cost;
@@ -350,23 +363,44 @@ bool updateRoutingTable(int updated_row){
 bool updateRoutingTable(){
 	bool table_updated = false;
 
-	for(int row = 0; row < node_count; row++){
-		for(int i = 1; i < node_count; i++){
-			// cost to dest + cost to source < own cost to dest
+	int old_costs[node_count];
+	int cost_from[node_count];
+	for(int i = 1; i < node_count; i++){
+		old_costs[i] = graph[0][i];
+		graph[0][i] = infinity;
+		cost_from[i] = 0;
+	}
 
-			int new_cost = graph[row][i] + graph[0][row];
-			//cout << "\nold cost " << graph[0][i] << " new cost " << new_cost;// << endl;
+	for(int row = 1; row < node_count; row++){
+		if(!is_neighbour[row]){continue;}
+		for(int i = 1; i < node_count; i++){
+			if( row == i || is_neighbour[i] ){ continue; }
+			
+			int new_cost = graph[row][i] + old_costs[row];
+			
 			if(new_cost < graph[0][i]){
-				//cout << "new is less\n";
 				graph[0][i] = new_cost;
-						
-				rtable[i].cost = new_cost;
-				rtable[i].ttl = ttl;
-				hostnameToIp(nodes[row].c_str(), &rtable[i].nexthop);
-				
-				table_updated = true;
+				cost_from[i] = row;
 			}
 		}	
+	}
+
+	for(int i = 1; i < node_count; i++){
+		if(old_costs[i] < graph[0][i]){
+			graph[0][i] = old_costs[i];
+		}
+		else{
+			if(is_neighbour[i]){continue;}
+			rtable[i].cost = graph[0][i];
+			rtable[i].ttl = ttl;
+			if(cost_from[i] == 0){
+				rtable[i].nexthop.sin_addr.s_addr = 0;	
+			}
+			else{
+				hostnameToIp(nodes[cost_from[i]].c_str(), &rtable[i].nexthop);	
+			}
+			table_updated = true;
+		}
 	}
 
 	return table_updated;	

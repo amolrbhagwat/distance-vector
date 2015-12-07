@@ -43,7 +43,9 @@ void 	showStats();
 bool 	updateGraph(int, string, string);
 int 	getIndexFromAddr(const char*);
 bool 	updateRoutingTable(int);
-bool	 updateRoutingTable();
+bool	updateRoutingTable();
+void	checkIfConverged();
+
 char 	configfilename[15];	
 	
 int 	portno, infinity;
@@ -60,6 +62,8 @@ int		graph[MAX_NODES][MAX_NODES];
 int 	node_count = 0; 					// total number of nodes in the network, including itself
 int 	neighbour_count = 0; 				// number of neigbhours
 
+bool	convergence_achieved = false;
+
 struct 	RouteEntry {
 	struct sockaddr_in destadr;  			// address of the destination
 	struct sockaddr_in nexthop;  			// address of the next hop
@@ -68,6 +72,8 @@ struct 	RouteEntry {
 } rtable[MAX_NODES];
 	
 pthread_mutex_t lock;
+
+timeval time_table_init, time_table_updated, time_current, time_diff, time_convergence;
 
 int main(int argc, char* argv[]) {
 	// check the parameters	
@@ -119,6 +125,8 @@ void initialize(){
 	//displayGraph();
 	generateRoutingTable();
 	//displayRoutingTable();
+	gettimeofday(&time_table_init, NULL);
+	gettimeofday(&time_table_updated, NULL);
 }
 
 void generateGraph(){
@@ -181,10 +189,37 @@ void *update(void* a){
         decrementTTLs();
         updateRoutingTable();
         sendAdv();
+
+        //checkIfConverged();
         pthread_mutex_unlock(&lock);        
     
     }
     return NULL;
+}
+
+void checkIfConverged(){
+	if(convergence_achieved){
+		return;
+	}
+	
+	gettimeofday(&time_current, NULL);
+	timersub(&time_current, &time_table_updated, &time_diff);
+	
+	cout << "init: " << time_table_init.tv_sec << "s " << time_diff.tv_usec << "us\n";
+	cout << "updt: " << time_table_updated.tv_sec << "s " << time_diff.tv_usec << "us\n";
+	cout << "crnt: " << time_current.tv_sec << "s " << time_diff.tv_usec << "us\n";
+	cout << "diff: " << time_diff.tv_sec << "s " << time_diff.tv_usec << "us\n";
+
+	if(time_diff.tv_sec > 5 * period){
+		timersub(&time_table_updated, &time_table_init, &time_convergence);
+		cout << "*************************************************" << endl;
+		cout << "Convergence took: " << time_convergence.tv_sec << " seconds" << endl;
+		cout << "*************************************************" << endl;
+		convergence_achieved = true;
+		time_table_init.tv_sec = time_table_updated.tv_sec;
+		time_table_init.tv_usec = time_table_updated.tv_usec;
+	}
+    
 }
 
 void decrementTTLs(){
@@ -348,16 +383,24 @@ bool updateRoutingTable(int updated_row){
 		char temp_ip[INET_ADDRSTRLEN];
 		bzero(temp_ip, INET_ADDRSTRLEN);
 
-		int new_cost = graph[updated_row][i] + graph[0][updated_row];
+		int old_cost = graph[0][i];
+		
+		if( (getIndexFromAddr(inet_ntop(AF_INET, &rtable[i].nexthop.sin_addr, temp_ip, INET_ADDRSTRLEN)) == updated_row) ){
+			// got adv that a node's cost has changed, and if we are routing to that node via whom we heard the adv from
 
-		if( (getIndexFromAddr(inet_ntop(AF_INET, &rtable[i].nexthop.sin_addr, temp_ip, INET_ADDRSTRLEN)) == updated_row) 
-			&& !is_neighbour[updated_row]){
-			// got adv that a node's cost has incr, and if we are routing to that node via whom we heard the adv from
+			if( graph[updated_row][i] == infinity ){
+				graph[0][i] = infinity;
+				table_updated = true;
+				continue;
+			}
+			else{
+				graph[0][i] = graph[updated_row][i] + graph[0][updated_row];
 
-			graph[0][i] = graph[updated_row][i] + graph[0][updated_row];
-
-			rtable[i].cost = graph[0][i];
-			
+				rtable[i].cost = graph[0][i];
+			}
+			if(graph[0][updated_row] != old_cost){
+				table_updated = true;	
+			}
 			// the destination node should not be a neighbor ,in order to prevent a loop
 			if(!is_neighbour[i]){
 				rtable[i].ttl = ttl;
@@ -367,7 +410,8 @@ bool updateRoutingTable(int updated_row){
 
 
 		// cost to dest + cost to source < own cost to dest
-		
+		int new_cost = graph[updated_row][i] + graph[0][updated_row];
+
 		if(new_cost < graph[0][i] && new_cost < infinity){
 			graph[0][i] = new_cost;
 			
@@ -380,6 +424,11 @@ bool updateRoutingTable(int updated_row){
 
 		
 	}	
+
+	if(table_updated){
+		gettimeofday(&time_table_updated, NULL);
+		convergence_achieved = false;
+	}
 
 	return table_updated;	
 }
@@ -410,7 +459,7 @@ bool updateRoutingTable(){
 	}
 
 	for(int i = 1; i < node_count; i++){
-		if(old_costs[i] < graph[0][i]){
+		if(old_costs[i] <= graph[0][i]){
 			graph[0][i] = old_costs[i];
 		}
 		else{
@@ -425,6 +474,11 @@ bool updateRoutingTable(){
 			}
 			table_updated = true;
 		}
+	}
+
+	if(table_updated){
+		gettimeofday(&time_table_updated, NULL);
+		convergence_achieved = false;
 	}
 
 	return table_updated;	
@@ -621,3 +675,21 @@ void displayRoutingTable(){
 		cout << nodes[i] << endl;
 	}
 }
+
+
+/*
+
+
+
+timeval time_start, time_end, time_diff;
+    gettimeofday(&time_start, NULL);
+    
+
+
+gettimeofday(&time_end, NULL);
+
+    timersub(&time_end, &time_start, &time_diff);
+    cout << "Total time elapsed: " << time_diff.tv_sec << "s " << time_diff.tv_usec << "us\n";
+
+
+*/

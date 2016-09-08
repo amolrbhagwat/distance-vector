@@ -343,10 +343,6 @@ void processAdv(char* recdadv, char* heard_from_ip){
 }
 
 bool updateGraph(int heard_from_index, string destination, string costtodestination){
-	//char twmp[INET_ADDRSTRLEN];
-	//cout << "updateGraph() " << heard_from_index << " " << inet_ntop(AF_INET, &rtable[heard_from_index].destadr.sin_addr, twmp, INET_ADDRSTRLEN) << endl;
-	//cout << "dest " << destination << endl;					
-
 	// fills up the corresponding cell in the matrix
 	char temp_ip[INET_ADDRSTRLEN];
 	int to_index = -1;
@@ -676,20 +672,3 @@ void displayRoutingTable(){
 	}
 }
 
-
-/*
-
-
-
-timeval time_start, time_end, time_diff;
-    gettimeofday(&time_start, NULL);
-    
-
-
-gettimeofday(&time_end, NULL);
-
-    timersub(&time_end, &time_start, &time_diff);
-    cout << "Total time elapsed: " << time_diff.tv_sec << "s " << time_diff.tv_usec << "us\n";
-
-
-*/
